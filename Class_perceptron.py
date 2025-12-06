@@ -22,7 +22,7 @@ class Perceptron:
         self.w = np.random.randn(self.x.shape[1], 1)
 
         print("=========== Training in process ===========")
-
+        
         for epoch in range(1, self.max_epoch + 1):
             errors = 0
 
@@ -54,7 +54,8 @@ class Perceptron:
 
         # Init poids
         self.w = np.random.randn(X.shape[1])
-
+        errors = 0
+        epoch = 0
         for epoch in range(self.max_epoch):
             errors = 0
 
@@ -71,11 +72,12 @@ class Perceptron:
             self.errors_history.append(errors)
 
             if errors == 0:
-                print(f"Convergence à l’epoch {epoch + 1}")
+                # print(f"Convergence à l’epoch {self.epoch + 1}")
                 break
-        if errors > 0:
-            print(f"=========== Arrêt après {self.max_epoch} epochs ===========")
-            print(f"Dernier nombre d'erreurs: {errors}")
+        self.epoch = epoch + 1
+        # if errors > 0:
+        #     print(f"=========== Arrêt après {self.max_epoch} epochs ===========")
+            # print(f"Dernier nombre d'erreurs: {errors}")
 
     @staticmethod
     def add_biais(n, P):
@@ -100,14 +102,14 @@ class Perceptron:
 
     """
 
-    @staticmethod
-    def generate_LS(n, p=20):
-        perceptron_maitre = np.random.randn(n + 1, 1)
+    
+    def generate_LS(self,n, p=20):
+        self.perceptron_maitre = np.random.randn(n + 1, 1)
         x_ls = Perceptron.add_biais(n, p)
         y = [0]*p
 
         for i in range(p):
-            h = np.dot(x_ls[i], perceptron_maitre)
+            h = np.dot(x_ls[i], self.perceptron_maitre)
             y[i] = Perceptron.sign(h)
 
         return np.array(Perceptron.remove_biais(x_ls)), np.array(y)
