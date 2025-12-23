@@ -93,11 +93,11 @@ def init_2():
 
 
 def init_3():
-    global x_all, y_all
+    global x_train, y_train
 
     # Numpy arrays
-    Xn = x_all.to_numpy().astype(float)
-    yn = y_all["class"].to_numpy().astype(float)
+    Xn = x_train.to_numpy().astype(float)
+    yn = y_train["class"].to_numpy().astype(float)
 
     # Entraînement perceptron sur l'ensemble L
     model = Minimerror(
@@ -105,14 +105,14 @@ def init_3():
         normalize_weights=True,
         scale_inputs=False,
         hebb_noise=1e-2,
-        learning_rate=0.05,
-        T=7  # 150.0,
+        learning_rate=0.0001,
+        T=2  # 150.0,
     )
 
     history = model.train(
         Xn, yn,
-        epochs=50000,  # 10000
-        T_final=0.005  # T = 0.010
+        epochs=500000,  # 10000
+        T_final=1e-6 # T = 0.010
 
     )
 
@@ -127,6 +127,7 @@ def init_3():
     plot_minimerror_pca(model=model, X=Xn, y=yn, title="Minimerror – PCA + hyperplan")
 
     plot_cost_and_derivative(model=model)
+    model.save_weights("minimerror_sonar_weights.csv")
 
 
 
@@ -135,7 +136,7 @@ def init_3():
 # Test principal
 # ======================================================================
 
-init_1()
-# init_2()
-# init_3()
+# init_1()
+init_2()
+init_3()
 

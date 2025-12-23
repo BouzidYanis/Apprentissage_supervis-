@@ -38,6 +38,7 @@ class Minimerror:
             "T": [],
             "stabilities": []
         }
+        self.stabilities_test = []
 
     # --------------------------------------------------
     # Utilitaires
@@ -100,7 +101,10 @@ class Minimerror:
         Xb = self._add_bias(X)
         gamma = self.compute_stability(X, y)
 
-        factor = 1 / np.cosh(gamma / (2 * self.T)) ** 2
+        z = gamma / (2 * self.T)
+        t = np.tanh(z)
+        factor = 1 - t**2   # dérivée stable
+
         grad = -(y[:, None] * Xb) * factor[:, None]
         grad = np.sum(grad, axis=0) / (4 * self.T)
 
@@ -162,6 +166,8 @@ class Minimerror:
 
         T0 = self.T
 
+        error_hist = float('inf')
+
         for epoch in range(epochs):
             if anneal:  # Recuit déterministe (diminution de T)
                 self.T = T0 - (T0 - T_final) * (epoch / epochs)
@@ -175,6 +181,10 @@ class Minimerror:
             error = np.mean(self.predict(X) != y)
             cost = self.compute_cost(X, y)
             stabilities = self.compute_stability(X, y)
+            if error > error_hist:
+                self.learning_rate *= 0.9
+
+            error_hist = error
 
             self.history["error"].append(error)
             self.history["cost"].append(cost)
@@ -204,6 +214,10 @@ class Minimerror:
         y_pred = np.sign(Xb @ self.w)
         y_pred[y_pred == 0] = 1
         return y_pred
+    
+    def save_weights(self, filepath: str):
+        """Sauvegarde les poids dans un fichier .npy"""
+        np.savetxt(filepath, self.w, delimiter=',')
 
 
 def plot_minimerror_pca(model, X, y, title="Minimerror – PCA + hyperplan"):
