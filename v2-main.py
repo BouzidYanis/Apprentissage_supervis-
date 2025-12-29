@@ -1,8 +1,57 @@
 import numpy as np
-from tools import load_breast_cancer_data, parse_sonar_file
+from tools import load_breast_cancer_data, parse_sonar_file, data_split
 from v2 import Minimerror, MinimerrorTwoTemp, NParityDataset
 import matplotlib.pyplot as plt
 import pandas as pd
+from sklearn.linear_model import Perceptron
+from sklearn.datasets import load_breast_cancer
+
+
+def question_1():
+    global file_path
+    global x_train, y_train
+    global x_test, y_test
+    global x_all, y_all
+
+    # train, test sets for rocks
+    filename = "sonar.mines"
+    try:
+        x_train_mines, x_test_mines, y_train_mines, y_test_mines = parse_sonar_file(filename, file_path)
+    except FileNotFoundError:
+        print(f"Erreur: Le fichier '{filename}' n'a pas été trouvé.")
+    except Exception as e:
+        print(f"Erreur lors de la lecture du fichier: {e}")
+
+    # train, test sets for rocks
+    filename = "sonar.rocks"
+    try:
+        x_train_rocks, x_test_rocks, y_train_rocks, y_test_rocks = parse_sonar_file(filename, file_path)
+    except FileNotFoundError:
+        print(f"Erreur: Le fichier '{filename}' n'a pas été trouvé.")
+    except Exception as e:
+        print(f"Erreur lors de la lecture du fichier: {e}")
+
+    x_train = pd.concat([x_train_mines, x_train_rocks])
+    x_test = pd.concat([x_test_mines, x_test_rocks])
+
+    y_train = pd.concat([y_train_mines, y_train_rocks])
+    y_test = pd.concat([y_test_mines, y_test_rocks])
+
+    x_all = pd.concat([x_train, x_test])
+    y_all = pd.concat([y_train, y_test])
+
+    print(f"Dimension x_tain :({x_train.shape[0]}, {x_train.shape[1]})")
+
+    print(f"Dimension x_test :({x_test.shape[0]}, {x_test.shape[1]})")
+
+    print(f"Dimension x_all :({x_all.shape[0]}, {x_all.shape[1]})")
+
+    print(y_test['class'].unique(), y_all.shape)
+
+    # Il faut transformer les données catégorielles  M, R en 1, 0 pour les questions suivantes
+    y_train['class'] = y_train['class'].map({'M': 1, 'R': 0})
+    y_test['class'] = y_test['class'].map({'M': 1, 'R': 0})
+    y_all['class'] = y_all['class'].map({'M': 1, 'R': 0})
 
 
 def n_parity(n):  # 5  7 pour T= 10
@@ -166,7 +215,7 @@ def init_3():
 
 
 #  load breast_cancer_data
-X_train, X_test, y_train, y_test = load_breast_cancer_data(test_size=0.2, random_state=42)
+# X_train, X_test, y_train, y_test = load_breast_cancer_data(test_size=0.2, random_state=42)
 
 
 def parti_I():
@@ -208,7 +257,7 @@ def parti_I():
     y_pred_train = model.predict(X_train)
     Ea = np.sum(y_pred_train != y_train)
 
-    y_pred_test = model.predict(X_train)
+    y_pred_test = model.predict(X_test)
     Eg = np.sum(y_pred_test != y_test)
 
     print(f"Ea = {Ea}/{len(y_train)}")
@@ -217,11 +266,11 @@ def parti_I():
     pass
 
 
-parti_I()
+# parti_I()
 
 def parti_II():
     def run_experiment_two_temp(X_train, y_train, X_test, y_test,
-                                beta_plus=1.0, beta_minus=1.0,
+                                beta_plus=2.0, rapport_temperature=10,
                                 ratio_fixed=False, filename="weights.txt"):
         """
         Exécute l'expérience complète de la partie II.
@@ -233,19 +282,19 @@ def parti_II():
             et on fait varier les deux simultanément.
         """
         print("=" * 60)
-        print(f"EXPÉRIENCE AVEC β+={beta_plus}, β-={beta_minus}")
+        print(f"EXPÉRIENCE AVEC β+={beta_plus}, β-={beta_plus / rapport_temperature} ")
         print("=" * 60)
 
         # 1. Entraînement
         model = MinimerrorTwoTemp(
-            beta_plus=beta_plus,
-            beta_minus=beta_minus,
-            learning_rate=0.05,
+            beta0=beta_plus,
+            rapport_temperature=rapport_temperature,
+            learning_rate=0.02,
             init_method="hebb",
             normalize_weights=True
         )
 
-        history = model.train(X_train, y_train, epochs=300, verbose=True)
+        history = model.train(X_train, y_train, epochs=5000, verbose=True, beta_max=20)
 
         # 2. Calcul des erreurs
         Ea, Eg = model.compute_errors(X_train, y_train, X_test, y_test)
@@ -259,6 +308,7 @@ def parti_II():
         stabilities_test = model.compute_test_stabilities(X_test)
         print(f"Stabilités test: moy={np.mean(stabilities_test):.3f}, "
               f"std={np.std(stabilities_test):.3f}")
+        print(f"stabilities_test: {stabilities_test}")
 
         return model, Ea, Eg, stabilities_test
 
@@ -271,6 +321,8 @@ def parti_II():
         all_Ea = []
         all_Eg = []
 
+        rt = 5
+
         print("\n" + "=" * 60)
         print("ÉTUDE DES STABILITÉS EN FONCTION DE β")
         print("=" * 60)
@@ -280,8 +332,8 @@ def parti_II():
 
             # Entraînement avec beta_plus = beta_minus = beta
             model, Ea, Eg, stabilities = run_experiment_two_temp(
-                X_train, y_train, X_test, y_test,
-                beta_plus=beta, beta_minus=beta,
+                X_train, y_train, X_test, y_test, 
+                beta_plus=beta, rapport_temperature=rt,
                 filename=f"weights_beta_{beta}.txt"
             )
 
@@ -294,9 +346,9 @@ def parti_II():
 
         plt.subplot(1, 2, 1)
         plt.boxplot(all_stabilities, positions=beta_values)
-        plt.xlabel('β (β+ = β-)')
+        plt.xlabel('β')
         plt.ylabel('Stabilités sur test')
-        plt.title('Distribution des stabilités en fonction de β')
+        plt.title(f'Distribution des stabilités en fonction de β avec rapport={rt}')
         plt.grid(True, alpha=0.3)
 
         # Graphique 2: Moyenne des stabilités et erreurs
@@ -309,9 +361,9 @@ def parti_II():
         plt.plot(beta_values, all_Ea, 's-', label='Ea')
         plt.plot(beta_values, all_Eg, 'd-', label='Eg')
 
-        plt.xlabel('β (β+ = β-)')
+        plt.xlabel('β ')
         plt.ylabel('Valeur')
-        plt.title('Stabilités moyennes et erreurs')
+        plt.title(f'Stabilités moyennes et erreurs en fonction de β et rapport={rt}')
         plt.legend()
         plt.grid(True, alpha=0.3)
 
@@ -340,7 +392,7 @@ def parti_II():
 
         model, Ea, Eg, stabilities = run_experiment_two_temp(
             X_train, y_train, X_test, y_test,
-            beta_plus=2.0, beta_minus=1.0,
+            beta_plus=2.0, rapport_temperature=10,
             filename="weights_ratio_2.txt"
         )
 
@@ -358,27 +410,136 @@ def parti_II():
     # ------------------------------------------------------
     # Exemple d'utilisation
     # ------------------------------------------------------
+    def linear_separable_gaussians(n=200, d=2, margin=2.0, seed=42):
+        np.random.seed(seed)
+
+        X_pos = np.random.randn(n//2, d) + margin
+        X_neg = np.random.randn(n//2, d) - margin
+
+        X = np.vstack([X_pos, X_neg])
+        y = np.hstack([np.ones(n//2), -np.ones(n//2)])
+
+        return X, y
 
     if __name__ == "__main__":
         # Génération de données d'exemple
-        np.random.seed(42)
-        n_train, n_test, n_features = 100, 50, 10
+        # n_parity = NParityDataset(10) 
+        # X,y= n_parity.generate()
 
-        # Données d'entraînement
-        X_train = np.random.randn(n_train, n_features)
-        w_true = np.random.randn(n_features + 1)
-        X_train_bias = np.hstack([X_train, np.ones((n_train, 1))])
-        y_train = np.sign(X_train_bias @ w_true)
+        # X_train, X_test, y_train, y_test = data_split(X, y, test_size=0.2, random_state=42)
+        # Étude des stabilités en fonction de β
+        # results = plot_stabilities_vs_beta(X_train, y_train, X_test, y_test)
+        # Test avec deux températures différentes
+        x_train, x_test, y_train, y_test = load_breast_cancer_data(test_size=0.3, random_state=42)
+        model = MinimerrorTwoTemp(
+            beta0=5,
+            rapport_temperature=5,
+            learning_rate=0.1,
+            init_method="hebb",
+            normalize_weights=True
+        )
 
-        # Données de test
-        X_test = np.random.randn(n_test, n_features)
-        X_test_bias = np.hstack([X_test, np.ones((n_test, 1))])
-        y_test = np.sign(X_test_bias @ w_true)
+        history = model.train(x_train, y_train, epochs=1000, verbose=True, beta_max=20)
 
-        # 1. Test avec rapport β+/β- = 1 (variation de β)
-        print("\n=== PARTIE d) : Graphique des stabilités vs β ===")
-        results = plot_stabilities_vs_beta(X_train, y_train, X_test, y_test)
+        # 2. Calcul des erreurs
+        Ea, Eg = model.compute_errors(x_train, y_train, x_test, y_test)
+        print(f"\nEa (erreur apprentissage) = {Ea:.4f}")
+        print(f"Eg (erreur généralisation) = {Eg:.4f}")
 
-        # 2. Test avec deux températures différentes
-        print("\n=== TEST AVEC DEUX TEMPÉRATURES DIFFÉRENTES ===")
-        model, Ea, Eg = test_with_two_temp(X_train, y_train, X_test, y_test)
+# parti_II()
+def test_with_perceptron_sklearn():
+    X_train, X_test,y_train, y_test = load_breast_cancer_data(0.3, 42)
+    perceptron = Perceptron(max_iter=10000, eta0=0.2)
+    perceptron.fit(X_train, y_train)
+    y_predit = perceptron.predict(X_train)
+    ea = np.sum(y_predit != y_train)
+    print(f"Erreurs sur les données d'entraînement : {ea}")
+
+# test_with_perceptron_sklearn()
+
+
+x_train, y_train = None, None
+x_test, y_test = None, None
+x_all, y_all = None, None
+
+file_path = r"./data"
+def question_1():
+    global file_path
+    global x_train, y_train
+    global x_test, y_test
+    global x_all, y_all
+
+    # train, test sets for rocks
+    filename = "sonar.mines"
+    try:
+        x_train_mines, x_test_mines, y_train_mines, y_test_mines = parse_sonar_file(filename, file_path)
+    except FileNotFoundError:
+        print(f"Erreur: Le fichier '{filename}' n'a pas été trouvé.")
+    except Exception as e:
+        print(f"Erreur lors de la lecture du fichier: {e}")
+
+    # train, test sets for rocks
+    filename = "sonar.rocks"
+    try:
+        x_train_rocks, x_test_rocks, y_train_rocks, y_test_rocks = parse_sonar_file(filename, file_path)
+    except FileNotFoundError:
+        print(f"Erreur: Le fichier '{filename}' n'a pas été trouvé.")
+    except Exception as e:
+        print(f"Erreur lors de la lecture du fichier: {e}")
+
+    x_train = pd.concat([x_train_mines, x_train_rocks])
+    x_test = pd.concat([x_test_mines, x_test_rocks])
+
+    y_train = pd.concat([y_train_mines, y_train_rocks])
+    y_test = pd.concat([y_test_mines, y_test_rocks])
+
+    x_all = pd.concat([x_train, x_test])
+    y_all = pd.concat([y_train, y_test])
+
+    print(f"Dimension x_tain :({x_train.shape[0]}, {x_train.shape[1]})")
+
+    print(f"Dimension x_test :({x_test.shape[0]}, {x_test.shape[1]})")
+
+    print(f"Dimension x_all :({x_all.shape[0]}, {x_all.shape[1]})")
+
+    print(y_test['class'].unique(), y_all.shape)
+
+    # Il faut transformer les données catégorielles  M, R en 1, 0 pour les questions suivantes
+    y_train['class'] = y_train['class'].map({'M': 1, 'R': 0})
+    y_test['class'] = y_test['class'].map({'M': 1, 'R': 0})
+
+    x_train = x_train.to_numpy()
+    y_train = y_train['class'].to_numpy() if hasattr(y_all, 'columns') and 'class' in y_all.columns else y_all.to_numpy()
+    x_test = x_test.to_numpy()
+    y_test = y_test['class'].to_numpy() if hasattr(y_test, 'columns') and 'class' in y_test.columns else y_test.to_numpy()
+
+def test_with_sonar():
+    question_1()
+    # Numpy arrays
+    global x_train, y_train
+    global x_test, y_test
+    model = MinimerrorTwoTemp(
+        beta0=5,
+        rapport_temperature=5,
+        learning_rate=0.1,
+        init_method="hebb",
+        normalize_weights=True
+    )
+    history = model.train(x_train, y_train, epochs=1000, verbose=True, beta_max=20)
+    # 2. Calcul des erreurs
+    Ea, Eg = model.compute_errors(x_train, y_train, x_test, y_test)
+    print(f"\nEa (erreur apprentissage) = {Ea:.4f}")
+    print(f"Eg (erreur généralisation) = {Eg:.4f}")
+
+test_with_sonar()
+
+def test_with_perceptron_sklearn_sonar():
+    question_1()
+    global x_train, y_train
+    global x_test, y_test
+    perceptron = Perceptron(max_iter=100000, eta0=0.5)
+    perceptron.fit(x_train, y_train)
+    y_predit = perceptron.predict(x_train)
+    ea = np.sum(y_predit != y_train)
+    print(f"Erreurs sur les données d'entraînement : {ea}")
+test_with_perceptron_sklearn_sonar()

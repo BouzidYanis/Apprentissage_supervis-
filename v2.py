@@ -367,12 +367,13 @@ class MinimerrorTwoTemp:
     Minimerror avec deux températures distinctes: beta_plus et beta_minus.
     """
 
-    def __init__(self, beta_plus=1.0, beta_minus=1.0, learning_rate=0.05,
+    def __init__(self, beta0=1.0, rapport_temperature=10, learning_rate=0.05,
                  init_method="hebb", hebb_noise=0.0, normalize_weights=True,
                  scale_inputs=True, momentum=0.0, min_lr_ratio=0.001):
 
-        self.beta_plus = beta_plus
-        self.beta_minus = beta_minus
+        self.beta_plus = beta0
+        self.rapport_temperature = rapport_temperature
+        self.beta_minus = self.beta_plus / rapport_temperature
         self.learning_rate = learning_rate
         self.init_method = init_method
         self.hebb_noise = hebb_noise
@@ -527,7 +528,7 @@ class MinimerrorTwoTemp:
     # Entraînement
     # --------------------------------------------------
 
-    def train(self, X_train, y_train, epochs=200, early_stopping=True, verbose=True):
+    def train(self, X_train, y_train, epochs=200, early_stopping=True, verbose=True, beta_max=100):
         """Entraînement avec deux températures."""
         y_train = self._prepare_labels(y_train)
 
@@ -536,21 +537,28 @@ class MinimerrorTwoTemp:
 
         self.initialize_weights(X_train, y_train)
 
+        beta0 = self.beta_plus
         best_error = float('inf')
         best_weights = self.w.copy()
         min_lr = self.learning_rate * self.min_lr_ratio
+        error_etoile = np.sum(self.predict(X_train) != y_train)
+        beta_etoile = self.beta_plus
+         
 
         for epoch in range(epochs):
+            term = beta_max * (1 -  epoch / epochs)
+            term += beta0 * (epoch / epochs) 
+            self.beta_plus = (beta0 * beta_max) / term
+            # self.beta_plus = beta0 * (beta_max / beta0) ** (epoch / epochs)
+            self.beta_minus = self.beta_plus / self.rapport_temperature 
             # Calcul du gradient
-            grad = self.compute_gradient(X_train, y_train)
-
-            # Mise à jour avec momentum
-            if self.momentum > 0:
-                self.velocity = (self.momentum * self.velocity
-                                 - self.learning_rate * grad)
-                self.w += self.velocity
+            if self.beta_plus < beta_etoile:
+                self.learning_rate *=0.8
             else:
-                self.w -= self.learning_rate * grad
+                beta_etoile = self.beta_plus
+                 
+            grad = self.compute_gradient(X_train, y_train)
+            self.w -= self.learning_rate * grad
 
             # Normalisation des poids
             if self.normalize_weights:
@@ -558,13 +566,13 @@ class MinimerrorTwoTemp:
                 if norm > 1e-12:
                     self.w /= norm
 
-            # Décroissance du taux d'apprentissage
-            if epoch > epochs // 3:
-                self.learning_rate = max(self.learning_rate * 0.9999, min_lr)
-
             # Évaluation
             y_pred = self.predict(X_train)
             error_count = np.sum(y_pred != y_train)
+            if error_count < error_etoile:
+                error_etoile = error_count
+                beta_etoile = self.beta_plus
+            
             error_rate = error_count / len(y_train)
             cost = self.compute_cost(X_train, y_train)
 
@@ -622,11 +630,11 @@ class MinimerrorTwoTemp:
         """Calcule Ea et Eg."""
         # Erreur d'apprentissage
         y_pred_train = self.predict(X_train)
-        Ea = np.mean(y_pred_train != y_train)
+        Ea = np.sum(y_pred_train != y_train)
 
         # Erreur de généralisation
         y_pred_test = self.predict(X_test)
-        Eg = np.mean(y_pred_test != y_test)
+        Eg = np.sum(y_pred_test != y_test)
 
         return Ea, Eg
 
@@ -663,3 +671,5 @@ class NParityDataset:
             dtype=np.float32
         )
         return X, y
+    
+    
