@@ -1,10 +1,12 @@
 import numpy as np
 from tools import load_breast_cancer_data, parse_sonar_file, data_split
-from v2 import Minimerror, MinimerrorTwoTemp, NParityDataset
+from v2 import Minimerror, MinimerrorTwoTemp
+from get_data import NParityDataset
 import matplotlib.pyplot as plt
 import pandas as pd
 from sklearn.linear_model import Perceptron
-from sklearn.datasets import load_breast_cancer
+from sklearn.datasets import load_breast_cancer, load_iris
+from sklearn.preprocessing import StandardScaler
 
 
 def question_1():
@@ -423,30 +425,32 @@ def parti_II():
 
     if __name__ == "__main__":
         # Génération de données d'exemple
-        # n_parity = NParityDataset(10) 
-        # X,y= n_parity.generate()
-
-        # X_train, X_test, y_train, y_test = data_split(X, y, test_size=0.2, random_state=42)
-        # Étude des stabilités en fonction de β
-        # results = plot_stabilities_vs_beta(X_train, y_train, X_test, y_test)
-        # Test avec deux températures différentes
-        x_train, x_test, y_train, y_test = load_breast_cancer_data(test_size=0.3, random_state=42)
+        
+        x_train, x_test, y_train, y_test = load_breast_cancer_data(test_size=0.5, random_state=42)
         model = MinimerrorTwoTemp(
-            beta0=5,
-            rapport_temperature=5,
-            learning_rate=0.1,
-            init_method="hebb",
-            normalize_weights=True
+            beta0=0.1,                    # β initial petit
+            rapport_temperature=1,       # ρ = β+/β- = 6
+            learning_rate=0.02,           # Taux d'apprentissage modéré
+            init_method="hebb",           # Initialisation Hebb
+            hebb_noise=1e-3,              # Léger bruit pour Hebb
+            normalize_weights=True,        # Normalisation des poids
+            scale_inputs=False
         )
 
-        history = model.train(x_train, y_train, epochs=1000, verbose=True, beta_max=20)
+        history = model.train(
+            x_train, y_train, 
+            epochs=5000,
+            beta_max=100,           # Température maximale
+        )
+
 
         # 2. Calcul des erreurs
-        Ea, Eg = model.compute_errors(x_train, y_train, x_test, y_test)
+        y_pred = model.predict(x_train)
+        Ea = np.sum(y_pred != y_train)
         print(f"\nEa (erreur apprentissage) = {Ea:.4f}")
-        print(f"Eg (erreur généralisation) = {Eg:.4f}")
 
 # parti_II()
+
 def test_with_perceptron_sklearn():
     X_train, X_test,y_train, y_test = load_breast_cancer_data(0.3, 42)
     perceptron = Perceptron(max_iter=10000, eta0=0.2)
@@ -455,8 +459,55 @@ def test_with_perceptron_sklearn():
     ea = np.sum(y_predit != y_train)
     print(f"Erreurs sur les données d'entraînement : {ea}")
 
-# test_with_perceptron_sklearn()
+def test_digits_slow_convergence():
+    from sklearn.datasets import load_digits
+    from sklearn.preprocessing import StandardScaler
+    import numpy as np
 
+    # --- Préparation des données (identique) ---
+    digits = load_digits()
+    X = digits.data
+    y = digits.target
+    
+    mask = y < 2 
+    X = X[mask]
+    y = y[mask]
+    y_formatted = np.where(y == 0, -1, 1)
+
+    sc = StandardScaler()
+    X_scaled = sc.fit_transform(X)
+
+    print(f"Dataset Digits (0 vs 1) : {X.shape[0]} exemples")
+    print("Démarrage du test de convergence LENTE...")
+
+    # --- CONFIGURATION "TORTUE" ---
+    model = MinimerrorTwoTemp(
+        beta0=2.0,                 # On commence déjà "froid" (gradients plus faibles loin de la frontière)
+        rapport_temperature=1.0,
+        learning_rate=0.001,      # Pas d'apprentissage minuscule (100x plus petit que la normale)
+        init_method="random",      # ON CASSE L'INTELLIGENCE DE HEBB : Départ au hasard
+        hebb_noise=0.0,            # Inutile en random
+        normalize_weights=True,
+        scale_inputs=False,        
+        momentum=0.0               # Pas d'élan pour aider à accélérer
+    )
+
+    # --- Entraînement ---
+    # On met beaucoup d'epochs car ça va être long
+    history = model.train(
+        X_scaled, y_formatted, 
+        epochs=10000,              # Il lui faudra peut-être 2000 à 5000 époques
+        early_stopping=True, 
+        verbose=True, 
+        beta_max=50
+    )
+
+    # --- Vérification ---
+    y_pred = model.predict(X_scaled)
+    Ea = np.sum(y_pred != y_formatted)
+    print(f"Résultat Final : Ea = {Ea} / {len(y_formatted)}")
+
+# test_digits_slow_convergence()
 
 x_train, y_train = None, None
 x_test, y_test = None, None
@@ -505,41 +556,265 @@ def question_1():
     print(y_test['class'].unique(), y_all.shape)
 
     # Il faut transformer les données catégorielles  M, R en 1, 0 pour les questions suivantes
-    y_train['class'] = y_train['class'].map({'M': 1, 'R': 0})
-    y_test['class'] = y_test['class'].map({'M': 1, 'R': 0})
+    y_train['class'] = y_train['class'].map({'M': 1, 'R': -1})
+    y_test['class'] = y_test['class'].map({'M': 1, 'R': -1})
+    y_all['class'] = y_all['class'].map({'M': 1, 'R': -1})
 
     x_train = x_train.to_numpy()
     y_train = y_train['class'].to_numpy() if hasattr(y_all, 'columns') and 'class' in y_all.columns else y_all.to_numpy()
     x_test = x_test.to_numpy()
     y_test = y_test['class'].to_numpy() if hasattr(y_test, 'columns') and 'class' in y_test.columns else y_test.to_numpy()
+    x_all = x_all.to_numpy()
+    y_all = y_all['class'].to_numpy() if hasattr(y_all, 'columns') and 'class' in y_all.columns else y_all.to_numpy()
 
 def test_with_sonar():
-    question_1()
-    # Numpy arrays
-    global x_train, y_train
-    global x_test, y_test
+    question_1() # Prépare x_train, y_train
+    
+    sc = StandardScaler()
+    x_train_scaled = sc.fit_transform(x_train)
+    
     model = MinimerrorTwoTemp(
-        beta0=5,
-        rapport_temperature=5,
-        learning_rate=0.1,
-        init_method="hebb",
-        normalize_weights=True
+        beta0=0.2,             # Température de départ
+        rapport_temperature=15, # Un rapport modéré est bon ici
+        learning_rate=0.02,    # Pas trop élevé pour ne pas rater le minimum
+        init_method="hebb",    # GARDER HEBB pour le Sonar
+        hebb_noise=0.01,
+        normalize_weights=True,
+        scale_inputs=False,    # Déjà fait manuellement avec sc
     )
-    history = model.train(x_train, y_train, epochs=1000, verbose=True, beta_max=20)
-    # 2. Calcul des erreurs
-    Ea, Eg = model.compute_errors(x_train, y_train, x_test, y_test)
-    print(f"\nEa (erreur apprentissage) = {Ea:.4f}")
-    print(f"Eg (erreur généralisation) = {Eg:.4f}")
-
+    
+    # MODIFICATIONS ICI : 
+    # - Réduire beta_max : 50 ou 100 suffisent largement pour le Sonar
+    # - Réduire les epochs : 60 000 est excessif et risque de faire exploser le gradient
+    history = model.train(x_train_scaled, y_train, 
+                         epochs=3000, 
+                         early_stopping=True, 
+                         verbose=True, 
+                         beta_max=120,b=0.995) # <--- IMPORTANT
+    
+    y_predict = model.predict(x_train_scaled)
+    print(f"\nEa (erreur apprentissage) = {np.sum(y_predict != y_train)} / {len(y_train)}")
+    y_predict_test = model.predict(sc.transform(x_test))
+    print(f"Eg (erreur généralisation) = {np.sum(y_predict_test != y_test)} / {len(y_test)}")
 test_with_sonar()
+def grid_search_sonar():
+    question_1() # Charge x_train, y_train
+    sc = StandardScaler()
+    x_train_scaled = sc.fit_transform(x_train)
+    
+    # Espace de recherche
+    raccourcis = {
+        'rapports': [4, 6, 8, 10],
+        'beta_maxs': [50, 80, 100, 150],
+        'lrs': [0.01, 0.02]
+    }
+    
+    best_ea = len(y_train)
+    best_params = {}
+
+    print(f"{'Rapport':<10} | {'Beta_max':<10} | {'LR':<10} | {'Ea':<5}")
+    print("-" * 45)
+
+    for r in raccourcis['rapports']:
+        for b_max in raccourcis['beta_maxs']:
+            for lr in raccourcis['lrs']:
+                model = MinimerrorTwoTemp(
+                    beta0=0.1,
+                    rapport_temperature=r,
+                    learning_rate=lr,
+                    init_method="hebb",
+                    hebb_noise=0.01,
+                    normalize_weights=True,
+                    scale_inputs=False
+                )
+                
+                # On utilise un grand nombre d'époques pour garantir la convergence
+                model.train(x_train_scaled, y_train, epochs=2000, 
+                            beta_max=b_max, verbose=False, early_stopping=True, b=0.99)
+                
+                y_pred = model.predict(x_train_scaled)
+                ea = np.sum(y_pred != y_train)
+                
+                print(f"{r:<10} | {b_max:<10} | {lr:<10} | {ea:<5}")
+                
+                if ea < best_ea:
+                    best_ea = ea
+                    best_params = {'rapport': r, 'beta_max': b_max, 'lr': lr}
+                
+                if ea == 0:
+                    print("!!! ZÉRO ERREUR ATTEINT !!!")
+                    return best_params
+
+    return best_params
+
+# Lancer la recherche
+# params = grid_search_sonar()
+
+def find_zero_ea_sonar():
+    question_1()
+    sc = StandardScaler()
+    X_scaled = sc.fit_transform(x_train)
+    
+    # On resserre la grille autour de vos paramètres qui donnent 2 erreurs
+    grid = {
+        'rapports': [8, 10, 12, 15],      # On monte un peu le rapport pour durcir la marge
+        'beta_maxs': [80, 100, 120, 150], # Exploration autour de 100
+        'lrs': [0.01, 0.02]               # Test de deux vitesses d'apprentissage
+    }
+    
+    print(f"{'Rapport':<8} | {'Beta_max':<8} | {'LR':<6} | {'Ea':<5}")
+    print("-" * 35)
+
+    for r in grid['rapports']:
+        for b_max in grid['beta_maxs']:
+            for lr in grid['lrs']:
+                model = MinimerrorTwoTemp(
+                    beta0=0.1,
+                    rapport_temperature=r,
+                    learning_rate=lr,
+                    init_method="hebb",
+                    hebb_noise=0.01,
+                    normalize_weights=True,
+                    scale_inputs=False
+                )
+                
+                # On utilise 3000 époques pour être certain de ne pas s'arrêter trop tôt
+                # On baisse le LR très doucement (0.999) pour garder de la précision
+                model.train(X_scaled, y_train, epochs=3000, beta_max=b_max, 
+                            verbose=False, early_stopping=True, b=0.995)
+                
+                y_pred = model.predict(X_scaled)
+                ea = np.sum(y_pred != y_train)
+                
+                print(f"{r:<8} | {b_max:<8} | {lr:<6} | {ea:<5}")
+                
+                if ea == 0:
+                    print("\n>>> SUCCÈS : Ea = 0 trouvé !")
+                    return {'rapport': r, 'beta_max': b_max, 'lr': lr}
+                    
+    return None
+
+best_params = find_zero_ea_sonar()
+print("\nMeilleurs paramètres trouvés :", best_params)
+# print("\nMeilleurs paramètres trouvés :", params)
+def optimize_sonar_zero_error():
+    # 1. Préparation des données
+    question_1()
+    global x_train, y_train
+    
+    # Conversion explicite des labels pour être sûr (0/1 -> -1/1)
+    # Minimerror attend du -1/1 en interne, mais on veut être sûr de l'entrée
+    
+    # Standardisation OBLIGATOIRE pour le Sonar
+    sc = StandardScaler()
+    X_scaled = sc.fit_transform(x_train)
+    
+    print(f"Dataset : {X_scaled.shape[0]} exemples, {X_scaled.shape[1]} features")
+    print("-" * 60)
+
+    # 2. Paramètres à tester
+    # On va tester plusieurs "violences" de bruit et de température
+    best_overall_Ea = float('inf')
+    best_config = None
+    best_weights = None
+
+    # On fait plusieurs essais (restarts) car le résultat dépend du bruit aléatoire
+    n_restarts = 10 
+    
+    for i in range(n_restarts):
+        # Paramètres un peu aléatoires pour explorer
+        current_noise = 0.05 + (i * 0.02)  # Augmente le bruit à chaque essai
+        
+        print(f"Tentative {i+1}/{n_restarts} (Bruit Hebb: {current_noise:.2f})...")
+        
+        model = MinimerrorTwoTemp(
+            beta0=0.5,                 # Température de départ modérée
+            rapport_temperature=2.0,   # Asymétrie : on serre plus une classe que l'autre
+            learning_rate=0.02,        # Pas trop petit pour bouger, pas trop grand pour converger
+            init_method="hebb",
+            hebb_noise=current_noise,  # CRUCIAL : Casser la symétrie
+            normalize_weights=True,
+            scale_inputs=False,        # Déjà fait
+            momentum=0.6,              # Inertie pour franchir les petits obstacles
+            min_lr_ratio=0.01
+        )
+
+        # Entraînement
+        model.train(
+            X_scaled, y_train, 
+            epochs=2000, 
+            early_stopping=True, 
+            verbose=False, 
+            beta_max=200  # Pas besoin de 10000, 200 suffit pour saturer tanh
+        )
+
+        # Vérification
+        y_pred = model.predict(X_scaled)
+        Ea = np.sum(y_pred != y_train)
+        
+        print(f"   -> Ea = {Ea}")
+        
+        if Ea < best_overall_Ea:
+            best_overall_Ea = Ea
+            best_config = f"Noise={current_noise:.2f}"
+            best_weights = model.w.copy()
+            
+        if Ea == 0:
+            print("\n>>> VICTOIRE ! Séparation parfaite trouvée (Ea=0).")
+            break
+
+    print("=" * 60)
+    print(f"MEILLEUR RÉSULTAT : {best_overall_Ea} erreurs")
+    print(f"Config gagnante : {best_config}")
+    
+    if best_overall_Ea > 0:
+        print("Note : Si Ea reste > 0 (ex: 1 ou 2), le dataset n'est probablement pas linéairement séparable.")
+
+# Lancer l'optimisation
+# optimize_sonar_zero_error()
 
 def test_with_perceptron_sklearn_sonar():
     question_1()
     global x_train, y_train
     global x_test, y_test
-    perceptron = Perceptron(max_iter=100000, eta0=0.5)
+    perceptron = Perceptron(max_iter=10000, eta0=0.5)
     perceptron.fit(x_train, y_train)
     y_predit = perceptron.predict(x_train)
     ea = np.sum(y_predit != y_train)
     print(f"Erreurs sur les données d'entraînement : {ea}")
-test_with_perceptron_sklearn_sonar()
+# test_with_perceptron_sklearn_sonar()
+
+def test_Nparity():
+    n = 10
+    np.random.seed(0)
+    dataset = NParityDataset(n)
+    X = dataset.X
+    y = dataset.y
+    model = MinimerrorTwoTemp(
+        beta0=0.2,
+        rapport_temperature=6,       # Recommandation thèse: 6
+        learning_rate=0.02,          # Recommandation thèse: 0.02
+        init_method="random",        # CRITIQUE pour la Parité [cite: 1000]
+        normalize_weights=True,
+        scale_inputs=True,
+        min_lr_ratio=0.01
+    )
+    history = model.train(X, y, epochs=300, beta_max=4000, early_stopping=False,verbose=True)
+    y_pred = model.predict(X)
+    Ea = int(np.sum(y_pred != y))
+    print(f"Ea (erreur apprentissage) = {Ea} / {len(y)}")
+
+test_Nparity()
+
+
+def test_Nparity_perceptron():
+    np.random.seed(0)
+    n = 10
+    n_parity = NParityDataset(n)
+    X, y = n_parity.generate()
+    perceptron = Perceptron(max_iter=10000, eta0=0.001)
+    perceptron.fit(X, y)
+    y_predit = perceptron.predict(X)
+    ea = np.sum(y_predit != y)
+    print(f"Erreurs sur les données d'entraînement : {ea} / {len(y)}")
+# test_Nparity_perceptron()

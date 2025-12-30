@@ -468,7 +468,7 @@ class MinimerrorTwoTemp:
         gamma = y * scores
 
         # Appliquer la température appropriée selon la classe
-        beta_values = np.where(y == 1, self.beta_plus, self.beta_minus)
+        beta_values = np.where(gamma > 0, self.beta_plus, self.beta_minus)
         z = gamma * beta_values / 2
         t = np.tanh(z)
 
@@ -477,58 +477,30 @@ class MinimerrorTwoTemp:
     # --------------------------------------------------
     # Gradient avec deux températures
     # --------------------------------------------------
-
     def compute_gradient(self, X, y):
-        """Gradient prenant en compte les deux températures."""
         Xb = self._add_bias(X)
-        scores = Xb @ self.w
+        norm = np.linalg.norm(self.w) + 1e-12
+        # Important : stabilité avec poids normalisés
+        gamma = self.compute_stability(X, y)
 
-        if self.normalize_weights:
-            norm = np.linalg.norm(self.w) + 1e-12
-            scores = scores / norm
-
-        gamma = y * scores
-
-        # Températures selon la classe
-        beta_values = np.where(y == 1, self.beta_plus, self.beta_minus)
+        beta_values = np.where(gamma > 0, self.beta_plus, self.beta_minus)
         z = gamma * beta_values / 2
-        t = np.tanh(z)
-        factor = 1 - t ** 2
+        factor = (beta_values / (4 * norm)) * (1 - np.tanh(z)**2)
 
-        # Calcul du gradient
-        if self.normalize_weights:
-            # Gradient avec normalisation des poids
-            w_norm = np.linalg.norm(self.w) + 1e-12
-            grad = np.zeros_like(self.w)
+        # Gradient "brut"
+        # Somme de [ y_i * X_i - gamma_i * (w/norm) ]
+        # Le terme (gamma_i * w) est la projection qui maintient la contrainte de normalisation
+        term_x = y[:, None] * Xb
+        term_proj = gamma[:, None] * (self.w / norm)
 
-            for i in range(len(y)):
-                beta = beta_values[i]
-                x_i = Xb[i]
-                y_i = y[i]
-
-                # Terme principal
-                term1 = -beta * y_i * factor[i] * x_i / (4 * w_norm)
-
-                # Terme de correction pour la normalisation
-                score_i = x_i @ self.w
-                term2 = (beta * y_i * factor[i] * score_i * self.w /
-                         (4 * w_norm ** 3))
-
-                grad += term1 + term2
-
-            grad = grad / len(y)
-        else:
-            # Sans normalisation (simplifié)
-            grad = -(beta_values[:, None] * y[:, None] * Xb * factor[:, None])
-            grad = np.sum(grad, axis=0) / (4 * len(y))
-
+        grad = - np.sum(factor[:, None] * (term_x - term_proj), axis=0)
         return grad
-
+    
     # --------------------------------------------------
     # Entraînement
     # --------------------------------------------------
 
-    def train(self, X_train, y_train, epochs=200, early_stopping=True, verbose=True, beta_max=100):
+    def train(self, X_train, y_train, epochs=200, early_stopping=True, verbose=True, beta_max=100,b=0.9):
         """Entraînement avec deux températures."""
         y_train = self._prepare_labels(y_train)
 
@@ -538,24 +510,14 @@ class MinimerrorTwoTemp:
         self.initialize_weights(X_train, y_train)
 
         beta0 = self.beta_plus
-        best_error = float('inf')
+        best_error = np.sum(self.predict(X_train) != y_train)
         best_weights = self.w.copy()
-        min_lr = self.learning_rate * self.min_lr_ratio
-        error_etoile = np.sum(self.predict(X_train) != y_train)
-        beta_etoile = self.beta_plus
          
 
         for epoch in range(epochs):
-            term = beta_max * (1 -  epoch / epochs)
-            term += beta0 * (epoch / epochs) 
-            self.beta_plus = (beta0 * beta_max) / term
+            self.beta_plus = beta0 + (beta_max - beta0) * (epoch / epochs)
             # self.beta_plus = beta0 * (beta_max / beta0) ** (epoch / epochs)
             self.beta_minus = self.beta_plus / self.rapport_temperature 
-            # Calcul du gradient
-            if self.beta_plus < beta_etoile:
-                self.learning_rate *=0.8
-            else:
-                beta_etoile = self.beta_plus
                  
             grad = self.compute_gradient(X_train, y_train)
             self.w -= self.learning_rate * grad
@@ -569,9 +531,6 @@ class MinimerrorTwoTemp:
             # Évaluation
             y_pred = self.predict(X_train)
             error_count = np.sum(y_pred != y_train)
-            if error_count < error_etoile:
-                error_etoile = error_count
-                beta_etoile = self.beta_plus
             
             error_rate = error_count / len(y_train)
             cost = self.compute_cost(X_train, y_train)
@@ -580,8 +539,10 @@ class MinimerrorTwoTemp:
             if error_count < best_error:
                 best_error = error_count
                 best_weights = self.w.copy()
+            else:
+                self.learning_rate *= b  # Décroissance du taux d'apprentissage
 
-            # Historique
+            # # Historique
             self.history["error"].append(error_rate)
             self.history["cost"].append(cost)
             self.history["beta_plus"].append(self.beta_plus)
@@ -606,7 +567,6 @@ class MinimerrorTwoTemp:
         # Restaurer les meilleurs poids
         self.w = best_weights
         self.learning_rate = self.original_lr
-
         return self.history
 
     # --------------------------------------------------
