@@ -8,7 +8,7 @@ from get_data import NParityDataset
 if __name__ == "__main__":
     # Générer des données d'exemple (problème XOR)
     np.random.seed(0)
-    n = 2
+    n = 5
     dataset = NParityDataset(n)
     X, y = dataset.X, dataset.y
     
